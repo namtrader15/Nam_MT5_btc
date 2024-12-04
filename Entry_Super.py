@@ -1,3 +1,4 @@
+# BỎ EMA SIGNAL, DÙNG TRONG ĐÁNH  THỊ TRƯỜNG SIDEWAY BIÊN ĐỘ 10.000$ GIÁ
 from binance.client import Client
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
