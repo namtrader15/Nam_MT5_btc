@@ -1,11 +1,11 @@
 import MetaTrader5 as mt5
 from binance.client import Client
 from atr_check import atr_stop_loss_finder  # Hàm tính ATR từ Binance
-
+import random
 # Thông tin tài khoản MT5
-MT5_ACCOUNT = 7510016
-MT5_PASSWORD = '7lTa+zUw'
-MT5_SERVER = 'VantageInternational-Demo'
+MT5_ACCOUNT = 24492270
+MT5_PASSWORD = 'obpaPLEJ.~39'
+MT5_SERVER = 'FivePercentOnline-Real'
 
 # Thông tin API Binance
 BINANCE_API_KEY = "your_binance_api_key"
@@ -59,8 +59,8 @@ def calculate_volume_based_on_risk(symbol, risk_amount, market_price, stop_loss_
     print(f"Volume tính toán: {volume} lots cho rủi ro {risk_amount} USD")
     return volume
 
-# Hàm thực hiện lệnh Market trên MT5 với tính toán volume dựa trên mức rủi ro
-def place_order_mt5(client, order_type, symbol="BTCUSD", risk_amount=100):
+# Hàm thực hiện lệnh Market trên MT5 với tính toán volume, Stop Loss và Take Profit
+def place_order_mt5(client, order_type, symbol="BTCUSD", risk_amount=80, risk_reward_ratio=1.7):
     global last_order_status
     
     # Lấy giá mark hiện tại từ MT5 để đặt lệnh
@@ -71,7 +71,15 @@ def place_order_mt5(client, order_type, symbol="BTCUSD", risk_amount=100):
     # Sử dụng hàm ATR để lấy stop_loss dựa trên ATR từ Binance
     atr_symbol = "BTCUSDT"  # Đổi thành BTCUSDT cho Binance API
     atr_short_stop_loss, atr_long_stop_loss = atr_stop_loss_finder(client, atr_symbol)
-    stop_loss_price = atr_long_stop_loss if order_type == "buy" else atr_short_stop_loss
+    
+    # Xác định giá trị SL
+    if order_type == "buy":
+        stop_loss_price = atr_long_stop_loss
+    else:
+        stop_loss_price = atr_short_stop_loss
+    
+    # Định dạng giá trị SL thành dạng thập phân
+    stop_loss_price = float(f"{stop_loss_price:.2f}")
 
     # Tính khối lượng giao dịch dựa trên mức rủi ro và giá trị ATR
     volume = calculate_volume_based_on_risk("BTCUSD", risk_amount, mark_price, stop_loss_price)
@@ -79,9 +87,22 @@ def place_order_mt5(client, order_type, symbol="BTCUSD", risk_amount=100):
         print("Số lượng giao dịch không hợp lệ. Hủy giao dịch.")
         return
 
+    # Tính toán Take Profit
+    risk_distance = abs(mark_price - stop_loss_price)  # Khoảng cách Risk
+    reward_distance = risk_distance * risk_reward_ratio  # Khoảng cách Reward
+    
+    if order_type == "buy":
+        take_profit_price = mark_price + reward_distance
+    else:
+        take_profit_price = mark_price - reward_distance
+
+    # Định dạng TP thành dạng thập phân
+    take_profit_price = float(f"{take_profit_price:.2f}")
+
     # In các giá trị để kiểm tra
     print(f"Giá hiện tại từ MT5: {mark_price}")
     print(f"Stop Loss dựa trên ATR: {stop_loss_price}")
+    print(f"Take Profit: {take_profit_price}")
     print(f"Khối lượng giao dịch: {volume} lots")
 
     # Thiết lập và gửi lệnh Market trên MT5 với IOC filling mode
@@ -91,6 +112,8 @@ def place_order_mt5(client, order_type, symbol="BTCUSD", risk_amount=100):
         "volume": volume,
         "type": mt5.ORDER_TYPE_BUY if order_type == "buy" else mt5.ORDER_TYPE_SELL,
         "price": mark_price,
+        "sl": stop_loss_price,  # Giá trị Stop Loss
+        "tp": take_profit_price,  # Giá trị Take Profit
         "deviation": 20,
         "magic": 234000,
         "type_filling": mt5.ORDER_FILLING_IOC,  # Chọn IOC làm chế độ khớp lệnh mặc định
@@ -102,11 +125,25 @@ def place_order_mt5(client, order_type, symbol="BTCUSD", risk_amount=100):
         print("Gửi lệnh thất bại. Kiểm tra các thông số lệnh:")
         print("Order:", order)
         print("Lỗi:", mt5.last_error())
+        # Khởi tạo khối lượng ngẫu nhiên từ 0.07 đến 0.09
+        backup_volume = round(random.uniform(0.07, 0.09), 2)
+        print(f"Thử lại với khối lượng dự phòng: {backup_volume} lots")
+        
+        # Cập nhật khối lượng trong lệnh
+        order["volume"] = backup_volume
+        result = mt5.order_send(order)
     elif result.retcode != mt5.TRADE_RETCODE_DONE:
         print("Lệnh không thành công. Mã lỗi:", result.retcode)
         print("Thông tin chi tiết:", result)
+          # Khởi tạo khối lượng ngẫu nhiên từ 0.07 đến 0.09
+        backup_volume = round(random.uniform(0.07, 0.09), 2)
+        print(f"Thử lại với khối lượng dự phòng: {backup_volume} lots")
+        
+        # Cập nhật khối lượng trong lệnh
+        order["volume"] = backup_volume
+        result = mt5.order_send(order)
     else:
-        last_order_status = f"Đã {order_type} {volume} lots BTC ở giá {mark_price:.2f}."
+        last_order_status = f"Đã {order_type} {volume} lots BTC ở giá {mark_price:.2f} với Stop Loss: {stop_loss_price:.2f} và Take Profit: {take_profit_price:.2f}."
         print(last_order_status)
 
 # Chương trình chính để kiểm tra
@@ -117,7 +154,7 @@ if __name__ == "__main__":
     # Kết nối MT5 và thực hiện lệnh Market mẫu
     if connect_mt5():
         print("Thực hiện lệnh Market với tính toán volume từ mức rủi ro và ATR stop loss.")
-        place_order_mt5(client, "buy", "BTCUSD", risk_amount=60)  # Truyền risk_amount trực tiếp
+        place_order_mt5(client, "buy", "BTCUSD", risk_amount=80)  # Truyền risk_amount trực tiếp
         mt5.shutdown()
     else:
         print("Không thể kết nối đến MT5.")
